@@ -620,6 +620,7 @@ static void ScanIfo(struct toc_summary *ts, const char *ifo)
 {
   static unsigned char buf[2048];
   struct vtsdef *vd;
+  size_t dummy;
   int i,first;
   FILE * const h = fopen(ifo, "rb");
   if (!h)
@@ -633,7 +634,7 @@ static void ScanIfo(struct toc_summary *ts, const char *ifo)
       fprintf(stderr,"ERR:  Too many VTSs\n");
       exit(1);
     } /*if*/
-  fread(buf, 1, 2048, h);
+  dummy = fread(buf, 1, 2048, h);
   vd = &ts->vts[ts->numvts]; /* where to put new entry */
   if (read4(buf + 0xc0) != 0) /* start sector of menu VOB */
     vd->hasmenu = true;
@@ -642,7 +643,7 @@ static void ScanIfo(struct toc_summary *ts, const char *ifo)
   vd->numsectors = read4(buf + 0xc) + 1; /* last sector of title set (last sector of BUP) */
   memcpy(vd->vtscat, buf + 0x22, 4); /* VTS category */
   memcpy(vd->vtssummary, buf + 0x100, 0x300); /* attributes of streams in VTS and VTSM */
-  fread(buf, 1, 2048, h); // VTS_PTT_SRPT is 2nd sector
+  dummy = fread(buf, 1, 2048, h); // VTS_PTT_SRPT is 2nd sector
   // we only need to read the 1st sector of it because we only need the
   // pgc pointers
   vd->numtitles = read2(buf); /* nr titles */
@@ -948,20 +949,6 @@ static void validatesummary(struct pgcgroup *va)
   if(err)
     exit(1);
 }
-
-static void statement_free(struct vm_statement *s)
-{
-  if (s)
-    {
-      free(s->s1);
-      free(s->s2);
-      free(s->s3);
-      free(s->s4);
-      statement_free(s->param);
-      statement_free(s->next);
-      free(s);
-    } /*if*/
-} /*statement_free*/
 
 struct pgcgroup *pgcgroup_new(vtypes type)
 {
