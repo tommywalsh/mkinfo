@@ -48,7 +48,7 @@ int main(int argc, char **argv)
   menugroup_add_pgcgroup(mg, "en", va[0]);
 
   if (argc==2) {
-    dvdauthor_vmgm_gen(0, mg, argv[1]);
+    dvdauthor_vmgm_gen(mg, argv[1]);
   } else {
     fprintf(stderr, "Usage foobar /path/to/dvddirectory\n");
   }

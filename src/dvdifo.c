@@ -105,97 +105,6 @@ static void nfwrite(const void *ptr, size_t len, FILE *h)
     } /*if*/
 } /*nfwrite*/
 
-static int getvoblen(const struct vobgroup *va)
-/* returns the length in sectors of the VOB group. */
-{
-  int i;
-  for (i = va->numvobs - 1; i >= 0; i--)
-    if (va->vobs[i]->numvobus)
-      return
-        va->vobs[i]->vobu[va->vobs[i]->numvobus - 1].lastsector + 1;
-  return
-    0;
-} /*getvoblen*/
-
-static int numsectVOBUAD(const struct vobgroup *va)
-/* returns the number of sectors a VOBU_ADMAP will take up. */
-{
-  int nv = 0, i;
-  for (i = 0; i < va->numvobs; i++)
-    nv += va->vobs[i]->numvobus;
-  return (4+nv*4+2047)/2048;
-}
-
-static int CreateCellAddressTable(FILE *h, const struct vobgroup *va)
-/* outputs a VMGM_C_ADT, VTSM_C_ADT or VTS_C_ADT structure containing pointers to all cells. */
-{
-  int i, p, k;
-  buf_init();
-  p = 8;
-  for (k = 0; k < va->numvobs; k++)
-    {
-      const struct vob * const thisvob = va->vobs[k];
-      for (i = 0; i < thisvob->numvobus; i++)
-        {
-          if (!i || thisvob->vobu[i].vobcellid != thisvob->vobu[i - 1].vobcellid)
-            { /* starting a new cell */
-              if (i)
-                {
-                  buf_write4(p + 8, thisvob->vobu[i - 1].lastsector);
-                  /* ending sector within VOB in previous entry */
-                  p += 12;
-                } /*if*/
-              buf_write2(p, thisvob->vobu[i].vobcellid >> 8); /* VOBidn */
-              buf_write1(p + 2, thisvob->vobu[i].vobcellid); /* CELLidn */
-              buf_write4(p + 4, thisvob->vobu[i].sector); /* starting sector within VOB */
-            } /*if*/
-        } /*for*/
-      buf_write4(p + 8, thisvob->vobu[i - 1].lastsector);
-      /* ending sector within VOB in last entry */
-      p += 12;
-    } /*for*/
-  buf_write4(4, p - 1); /* end address (last byte of last entry) */
-  // first 2 bytes of C_ADT contains number of vobs
-  buf_write2(0, va->numvobs);
-  p = (p + 2047) & (-2048); /* round up to whole sectors */
-  nfwrite(bigbuf, p, h);
-  return p / 2048; /* nr sectors written */
-} /*CreateCellAddressTable*/
-
-static void CreateVOBUAD(FILE *h, const struct vobgroup *va)
-/* outputs a VOBU_ADMAP structure containing pointers to all VOBUs. */
-{
-  int i, j, nv;
-  unsigned char buf[16];
-  nv = 0;
-  for (i = 0; i < va->numvobs; i++)
-    nv += va->vobs[i]->numvobus;
-  write4(buf, nv * 4 + 3); /* end address (last byte of last entry) */
-  nfwrite(buf, 4, h);
-  for (j = 0; j < va->numvobs; j++)
-    {
-      const struct vob * const thisvob = va->vobs[j];
-      for (i = 0; i < thisvob->numvobus; i++)
-        {
-          write4(buf, thisvob->vobu[i].sector); /* starting sector of VOBU within VOB */
-          nfwrite(buf, 4, h);
-        } /*for*/
-    } /*for*/
-  i = (-(4 + nv * 4)) & 2047;
-  if (i)
-    {
-      /* zero out unused part of last whole sector */
-      memset(buf, 0, 16);
-      while (i >= 16)
-        {
-          nfwrite(buf, 16, h);
-          i -= 16;
-        } /*while*/
-      if (i)
-        nfwrite(buf, i, h);
-    } /*if*/
-} /*CreateVOBUAD*/
-
 static int Create_TT_SRPT
 (
  FILE *h,
@@ -233,95 +142,12 @@ static int Create_TT_SRPT
   return p / 2048; /* nr sectors generated */
 } /*Create_TT_SRPT*/
 
-static void BuildAVInfo(unsigned char *buf, const struct vobgroup *va)
-/* builds the part of the IFO structure from offset 0x100 (VMGM, VTSM) and 0x200 (VTS) onwards,
-   containing the video, audio and subpicture stream attributes. Note these attributes
-   don't include any stream IDs; those are specified per-PGC. */
-{
-  int i;
-  static const int widescreen_bits[4] =
-    {
-      0, /* VW_NONE */
-      0x100, /* VW_NOLETTERBOX */
-      0x200, /* VW_NOPANSCAN */
-      2 /* VW_CROP */
-    };
-  write2
-    (
-     buf,
-     (va->vd.vmpeg == 2 ? 0x4000 : 0) /* coding mode: MPEG-1 or MPEG-2 */
-     |
-     widescreen_bits[va->vd.vwidescreen]
-     /* whether to allow automatic pan-scan, automatic letterbox, do cropping */
-     |
-     (va->vd.vformat == VF_PAL ? 0x1000 : 0) /* NTSC or PAL */
-     |
-     (va->vd.vaspect == VA_16x9 ? 0xc00 : 0x300)
-     // if 16:9, set aspect flag; if 4:3 set noletterbox/nopanscan
-     |
-     ((va->vd.vcaption & 1) ? 0x80 : 0)
-     /* caption=field1 (line-21 closed-captioning, NTSC only) */
-     |
-     ((va->vd.vcaption & 2) ? 0x40 : 0)
-     /* caption=field2 (line-21 closed-captioning, NTSC only) */
-     |
-     ((va->vd.vres - 1) << 3) /* resolution code */
-     );
-  /* bit rate always VBR, letterbox-cropped unset, PAL film flag unset for now */
-  buf[3] = va->numaudiotracks; /* nr audio streams, low byte */
-  for (i = 0; i < va->numaudiotracks; i++)
-    { /* fill in menu/title audio attributes */
-      buf[4 + i * 8] = (va->ad[i].aformat - 1) << 6; /* audio coding mode */
-      if (va->ad[i].alangpresent == AL_LANG) /* for title audio, not menu audio */
-        {
-          buf[4 + i * 8] |= 4; /* language type = as per language code */
-          memcpy(buf + 6 + i * 8, va->ad[i].lang, 2); /* language code */
-        } /*if*/
-      /* multichannel extension not supported for now */
-      if (va->ad[i].adolby == AD_SURROUND) /* for title audio, not menu audio */
-        {
-          buf[4 + i * 8] |= 2; /* application mode = surround */
-          buf[11 + i * 8] = 8; /* suitable for Dolby surround decoding */
-        } /*if*/
-      /* karaoke options not supported for now */
-      buf[5 + i * 8] =
-        ((va->ad[i].aquant - 1) << 6) /* quantization/DRC */
-        |
-        ((va->ad[i].asample - 1) << 4) /* sample rate */
-        |
-        (va->ad[i].achannels - 1); /* nr channels - 1 */
-
-      buf[9 + i * 8] = va->ad[i].acontent; /* audio code extension for title audio, not menu audio */
-    } /*for*/
-  buf[0x55] = va->numsubpicturetracks; /* nr subpicture streams, low byte */
-  for (i = 0; i < va->numsubpicturetracks; i++)
-    {
-      /* coding mode always RLE */
-      if (va->sp[i].slangpresent == AL_LANG) /* for title subpicture, not menu subpicture */
-        {
-          buf[0x56 + i * 6] = 1; /* language type = as per language code */
-          memcpy(buf + 0x58 + i * 6, va->sp[i].lang, 2); /* language code */
-        } /*if*/
-      buf[0x56 + i * 6 + 5] = va->sp[i].scontent;
-      /* title code extension (title subpicture only) */
-    } /*for*/
-} /*BuildAVInfo*/
-
-static bool needmenus(const struct menugroup *mg)
-/* do I actually have any menu definitions in mg. */
-{
-  if (!mg ) return false;
-  if( !mg->numgroups ) return false;
-  if( !mg->groups[0].pg->numpgcs ) return false;
-  return true;
-}
-
-void TocGen(const struct workset *ws, const struct pgc *fpc, const char *fname)
+void TocGen(const struct workset *ws, const char *fname)
 /* writes the IFO for a VMGM. */
 {
   static unsigned char buf[2048];
   int nextsector, offset, i, j, vtsstart;
-  const bool forcemenus = needmenus(ws->menus);
+  
   FILE *h;
 
   h = fopen(fname, "wb");
@@ -341,84 +167,24 @@ void TocGen(const struct workset *ws, const struct pgc *fpc, const char *fname)
   nextsector += Create_TT_SRPT(0, ws->titlesets, 0);
   /* just to figure out how many sectors will be needed */
 
-  if (jumppad || forcemenus)
-    {
-      write4(buf + 0xc8, nextsector); /* sector pointer to VMGM_PGCI_UT (menu PGC table) */
-      nextsector += CreatePGC(0, ws, VTYPE_VMGM);
-    } /*if*/
-
   write4(buf + 0xd0, nextsector);
   /* sector pointer to VMG_VTS_ATRT (copies of VTS audio/subpicture attrs) */
   /* I will output it immediately following IFO header */
   nextsector += (8 + ws->titlesets->numvts * 0x30c + 2047) / 2048;
   /* round up size of VMG_VTS_ATRT to whole sectors */
 
-  if (jumppad || forcemenus)
-    {
-      write4(buf + 0xd8, nextsector);
-      /* sector pointer to VMGM_C_ADT (menu cell address table) */
-      /* I make it follow VMG_VTS_ATRT */
-      nextsector += CreateCellAddressTable(0, ws->menus->vg); /* how much room it will need */
-
-      write4(buf + 0xdc, nextsector);
-      /* sector pointer to VMGM_VOBU_ADMAP (menu VOBU address map) */
-      nextsector += numsectVOBUAD(ws->menus->vg);
-    } /*if*/
-
   write4(buf + 0x1c, nextsector - 1); /* last sector of IFO */
   vtsstart = nextsector * 2; /* size of two copies of everything above including BUP */
-  if (jumppad || forcemenus)
-    {
-      write4(buf + 0xc0, nextsector); /* start sector of menu VOB */
-      vtsstart += getvoblen(ws->menus->vg);
-    } /*if*/
   write4(buf + 0xc, vtsstart - 1); /* last sector of VMG set (last sector of BUP) */
-
-  if (forcemenus)
-    BuildAVInfo(buf + 256, ws->menus->vg);
 
   /* create FPC at 0x400 as promised */
   buf[0x407] = (getratedenom(ws->menus->vg) == 90090 ? 3 : 1) << 6;
   // only set frame rate XXX: should check titlesets if there is no VMGM menu
   buf[0x4e5] = 0xec; /* offset to command table, low byte */
   offset = 0x4f4; /* commands start here, after 8-byte header of command table */
-  if (fpc)
-    {
-      unsigned char *pi;
-      if (fpc->posti || fpc->numsources || fpc->numbuttons || fpc->entries)
-        {
-          fprintf(stderr,"ERR:  FPC can ONLY contain prei commands, nothing else\n");
-          exit(1);
-        } /*if*/
-      if (ws->menus && ws->menus->numgroups)
-        pi = vm_compile(buf + offset, buf + offset, ws, ws->menus->groups[0].pg, 0, fpc->prei, 2);
-      // XXX: just use the first pgcgroup as a reference
-      else
-        pi = vm_compile(buf + offset, buf + offset, ws, 0, 0, fpc->prei, 2);
-      if (!pi)
-        {
-          fprintf(stderr,"ERR:  in FPC\n");
-          exit(1);
-        } /*if*/
-      offset = (pi - buf - offset) / 8; /* number of instructions */
-      assert(offset <= 128);
-      buf[0x4ed] = offset; /* number of pre commands, low byte */
-    }
-  else
-    {
-      /* generate default FPC */
-      if (forcemenus)
-        {
-          buf[offset + 0] = 0x30; // jump to VMGM 1
-          buf[offset + 1] = 0x06;
-          buf[offset + 2] = 0x00;
-          buf[offset + 3] = 0x00;
-          buf[offset + 4] = 0x00;
-          buf[offset + 5] = 0x42;
-          buf[offset + 6] = 0x00;
-          buf[offset + 7] = 0x00;
-        }
-      else if (ws->titlesets->numvts && ws->titlesets->vts[0].hasmenu)
+
+  {
+      if (ws->titlesets->numvts && ws->titlesets->vts[0].hasmenu)
         {
           buf[offset + 0] = 0x30; // jump to VTSM vts=1, ttn=1, menu=1
           buf[offset + 1] = 0x06;
@@ -448,10 +214,6 @@ void TocGen(const struct workset *ws, const struct pgc *fpc, const char *fname)
 
   Create_TT_SRPT(h, ws->titlesets, vtsstart); /* generate it for real */
 
-  // PGC
-  if (jumppad || forcemenus)
-    CreatePGC(h, ws, VTYPE_VMGM);
-
   /* VMG_VTS_ATRT contains copies of menu and title attributes from all titlesets */
   /* output immediately following IFO header, as promised above */
   memset(buf, 0, 2048);
@@ -478,11 +240,6 @@ void TocGen(const struct workset *ws, const struct pgc *fpc, const char *fname)
       nfwrite(buf, j, h);
     } /*if*/
 
-  if (jumppad || forcemenus)
-    {
-      CreateCellAddressTable(h, ws->menus->vg); /* actually generate VMGM_C_ADT */
-      CreateVOBUAD(h, ws->menus->vg); /* generate VMGM_VOBU_ADMAP */
-    } /*if*/
   fflush(h);
   if (errno != 0)
     {

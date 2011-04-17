@@ -4,11 +4,11 @@ bin_PROGRAMS = mkinfo
 
 AM_CPPFLAGS = -DSYSCONFDIR="\"$(sysconfdir)\"" \
     @XML_CPPFLAGS@ @MAGICK_CPPFLAGS@ @FREETYPE_CPPFLAGS@ @FRIBIDI_CFLAGS@ @FONTCONFIG_CFLAGS@
-AM_CFLAGS = -Wall
+AM_CFLAGS = -Wall -Wunreachable-code
 
-mkinfo_SOURCES = mkinfo.c common.h compat.c mkinfo.h mi-internal.h \
-    dvdcompile.c dvdvm.h dvdvml.c dvdvmy.c dvdvmy.h \
-    dvdifo.c dvdpgc.c dvdvob.c \
+mkinfo_SOURCES = mkinfo.c common.h mkinfo.h mi-internal.h \
+    dvdvm.h dvdvmy.h \
+    dvdifo.c \
     dvdcli.c readxml.h \
     conffile.h compat.h rgb.h
 mkinfo_LDADD = $(LIBICONV) $(XML_LIBS)

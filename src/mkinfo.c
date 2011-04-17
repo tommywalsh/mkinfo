@@ -38,10 +38,6 @@
 
 
 
-// with this enabled, extra PGC commands will be generated to allow
-// jumping/calling to a wider number of destinations
-bool jumppad = false;
-
 // with this enabled, all 16 general purpose registers can be used, but
 // prohibits certain convenience features, like multiple commands on a button
 bool allowallreg = false;
@@ -157,94 +153,6 @@ int getratedenom(const struct vobgroup *va)
   return ratedenom[getratecode(va)];
 } /*getratedenom*/
 
-pts_t getframepts(const struct vobgroup *va)
-/* returns the number of exact clock units per frame. */
-{
-  const int rc = getratecode(va);
-  return ratedenom[rc] / evenrate[rc];
-} /*getframepts*/
-
-static int tobcd(int v)
-/* separates the two decimal digits of v (assumed in range [0 .. 99]) into two hex nibbles.
-   This is used for encoding cell and PGC playback times. */
-{
-  return (v / 10) * 16 + v % 10;
-} /*tobcd*/
-
-static unsigned int buildtimehelper(const struct vobgroup *va, int64_t num, int64_t denom)
-/* returns a BCD-encoded representation hhmmssff of num/denom seconds including
-   the frame rate. */
-{
-  int hr, min, sec, fr, rc;
-  int64_t frate;
-
-  if (denom == 90090)
-    {
-      frate = 30;
-      rc = 3;
-    }
-  else
-    {
-      frate = 25;
-      rc = 1;
-    } /*if*/
-  num += denom / (frate * 2) + 1; /* so duration will be rounded to nearest whole frame time */
-  sec = num / denom; /* seconds */
-  min = sec / 60;
-  hr = tobcd(min / 60); /* hours */
-  min = tobcd(min % 60); /* minutes */
-  sec = tobcd(sec % 60); /* seconds */
-  num %= denom;
-  fr = tobcd(num * frate / denom); /* frame number within second--note tens digit will be <= 3 */
-  return
-    hr << 24
-    |
-    min << 16
-    |
-    sec << 8
-    |
-    fr
-    |
-    rc << 6;
-} /*buildtimehelper*/
-
-unsigned int buildtimeeven(const struct vobgroup *va, int64_t num)
-/* returns a BCD-encoded representation hhmmssff of num/denom seconds, where
-   denom is computed according to va->vd.vframerate. This is used for encoding
-   cell and PGC playback times. I think these BCD-encoded fields are designed
-   to be easy for the player to convert to a a form that can be displayed to
-   the user, they're not going to be used for any other computations in the
-   player. */
-{
-  const int rc = getratecode(va);
-  return
-    buildtimehelper(va, num, ratedenom[rc]);
-} /*buildtimeeven*/
-
-int getaudch(const struct vobgroup *va, int a)
-/* returns an index into a vob.audch array, with the audio format in the top two bits
-   and the channel id in the bottom three bits. */
-{
-  if (!va->ad[a].aid)
-    return
-      -1;
-  return
-    va->ad[a].aid - 1 + (va->ad[a].aformat - 1) * 8;
-} /*getaudch*/
-
-void write8(unsigned char *p,unsigned char d0,unsigned char d1,unsigned char d2,unsigned char d3,unsigned char d4,unsigned char d5,unsigned char d6,unsigned char d7)
-/* stores 8 bytes beginning at address p. */
-{
-  p[0]=d0;
-  p[1]=d1;
-  p[2]=d2;
-  p[3]=d3;
-  p[4]=d4;
-  p[5]=d5;
-  p[6]=d6;
-  p[7]=d7;
-}
-
 void write4(unsigned char *p,unsigned int v)
 /* inserts a four-byte integer in big-endian format beginning at address p. */
 {
@@ -273,318 +181,8 @@ unsigned int read2(const unsigned char *p)
   return (p[0]<<8)|p[1];
 }
 
-static int warnupdate
-(
- int * oldval,
- int newval,
- int * warnval, /* value previously warned about, if any */
- const char * desc, /* explanatory text for warning message */
- const char * const * lookup /* for converting values to symbolic form for messages */
- )
-/* updates *oldval to newval if not yet set (i.e. = 0), does nothing if it is already newval,
-   otherwise if it was set to something else, outputs a warning (if *warnval is not already
-   newval) and sets *warnval to newval. Returns 1 iff such a mismatch was found, else 0. */
-{
-  if (oldval[0] == 0)
-    {
-      oldval[0] = newval;
-      return
-        0;
-    }
-  else if (oldval[0] == newval)
-    return
-      0;
-  else if (warnval[0] != newval) /* not already warned about this value */
-    {
-      fprintf
-        (
-         stderr,
-         "WARN: attempt to update %s from %s to %s; skipping\n",
-         desc,
-         lookup[oldval[0]],
-         lookup[newval]
-         );
-      warnval[0] = newval; /* to reduce number of warnings */
-    } /*if*/
-  return
-    1;
-} /*warnupdate*/
-
-static int scanandwarnupdate
-(
- int * oldval,
- const char * newval, /* symbolic new value */
- int * warnval,
- const char * desc, /* explanatory text for warning message */
- const char * const * lookup /* table from which to return index matching newval */
- )
-/* updates *oldval to the index of the entry matching the name newval in the array lookup if
-   found and *oldval was not yet set (i.e. = 0). Does nothing if it was already set to the value,
-   otherwise if it was set to something else, outputs a warning and sets *warnval to the
-   new value. Returns 0 if newval could not be recognized, 1 if *oldval was updated or was
-   already the right value, and 2 if the warning was output. */
-{
-  int i;
-  for (i = 1; lookup[i]; i++)
-    if (!strcasecmp(newval, lookup[i]))
-      return
-        warnupdate(oldval, i, warnval, desc, lookup) + 1;
-  return
-    0;
-} /*scanandwarnupdate*/
-
-int vobgroup_set_video_framerate(struct vobgroup *va, int rate /* [0 .. 15] */)
-/* sets the video frame rate code (should be VR_PAL or VR_NTSC only). Returns 1 if
-   the framerate was already set to something different, else 0. */
-{
-  if (!va->vd.vframerate && rate != VR_PAL && rate != VR_NTSC)
-    {
-      fprintf(stderr, "WARN: not a valid DVD frame rate: 0x%02x\n", rate);
-      rate = VR_NTSC; /* or something */
-    } /*if*/
-  return warnupdate(&va->vd.vframerate, rate, &va->vdwarn.vframerate, "frame rate", vratedesc);
-} /*vobgroup_set_video_framerate*/
-
 #define ATTRMATCH(a) (attr==0 || attr==(a))
 /* does the attribute code match either the specified value or the xxx_ANY value */
-
-int vobgroup_set_video_attr(struct vobgroup *va,int attr,const char *s)
-/* sets the specified video attribute (might be VIDEO_ANY) to the specified keyword value.
-   Returns 1 if the attribute was already set to a different value, else 0.
-   Aborts the program on an unrecognizable value. */
-{
-  int w;
-
-  if( ATTRMATCH(VIDEO_MPEG) ) {
-    w=scanandwarnupdate(&va->vd.vmpeg,s,&va->vdwarn.vmpeg,"mpeg format",vmpegdesc);
-    if(w) return w-1;
-  }
-
-  if( ATTRMATCH(VIDEO_FORMAT) ) {
-    w=scanandwarnupdate(&va->vd.vformat,s,&va->vdwarn.vformat,"tv format",vformatdesc);
-    if(w) return w-1;
-  }
-
-  if( ATTRMATCH(VIDEO_ASPECT) ) {
-    w=scanandwarnupdate(&va->vd.vaspect,s,&va->vdwarn.vaspect,"aspect ratio",vaspectdesc);
-    if(w) return w-1;
-  }
-
-  if( ATTRMATCH(VIDEO_WIDESCREEN) ) {
-    w=scanandwarnupdate(&va->vd.vwidescreen,s,&va->vdwarn.vwidescreen,"widescreen conversion",vwidescreendesc);
-    if(w) return w-1;
-  }
-
-  if (ATTRMATCH(VIDEO_CAPTION))
-    {
-      w = va->vd.vcaption;
-      if (!strcasecmp(s, "field1"))
-        va->vd.vcaption |= 1;
-      else if (!strcasecmp(s, "field2"))
-        va->vd.vcaption |= 2;
-      else
-        {
-          fprintf(stderr, "ERR:  Cannot parse video caption '%s'\n", s);
-          exit(1);
-        } /*if*/
-      return w;
-    } /*if*/
-
-  if (ATTRMATCH(VIDEO_RESOLUTION) && strstr(s, "x"))
-    {
-      const int splitpos = strstr(s, "x") - s;
-      const char * const s1 = strndup(s, splitpos);
-      const char * const s2 = s + splitpos + 1;
-      const int h = strtounsigned(s1, "horizontal resolution");
-      int v, r, w;
-
-      if (isdigit(s2[0]))
-        v = strtounsigned(s2, "vertical resolution");
-      else if (!strcasecmp(s2, "full") || !strcasecmp(s2, "high"))
-        v = 384;
-      else
-        v = 383;
-       
-      if (h > 704)
-        r = VS_720H;
-      else if (h > 352)
-        r = VS_704H;
-      else if (v >= 384)
-        r = VS_352H;
-      else
-        r = VS_352L;
-      w = warnupdate(&va->vd.vres, r, &va->vdwarn.vres, "resolution", vresdesc);
-
-      if (va->vd.vformat == VF_NONE)
-        {
-          if (v % 5 == 0)
-            va->vd.vformat = VF_NTSC;
-          else if (v % 9 == 0)
-            va->vd.vformat = VF_PAL;
-        } /*if*/
-      free((char *)s1);
-      return w;
-    } /*if*/
-
-  fprintf(stderr,"ERR:  Cannot parse video option '%s'\n",s);
-  exit(1);
-} /*vobgroup_set_video_attr*/
-
-int audiodesc_set_audio_attr(struct audiodesc *ad,struct audiodesc *adwarn,int attr,const char *s)
-/* sets the specified audio attribute (might be AUDIO_ANY) to the specified keyword value.
-   Returns 1 if the attribute was already set to a different value, else 0.
-   Aborts the program on an unrecognizable value. */
-{
-  int w;
-
-  if (ATTRMATCH(AUDIO_FORMAT)) {
-    w=scanandwarnupdate(&ad->aformat,s,&adwarn->aformat,"audio format",aformatdesc);
-    if(w) return w-1;
-  }
-
-  if (ATTRMATCH(AUDIO_QUANT)) {
-    w=scanandwarnupdate(&ad->aquant,s,&adwarn->aquant,"audio quantization",aquantdesc);
-    if(w) return w-1;
-  }
-
-  if (ATTRMATCH(AUDIO_DOLBY)) {
-    w=scanandwarnupdate(&ad->adolby,s,&adwarn->adolby,"surround",adolbydesc);
-    if(w) return w-1;
-  }
-
-  if (ATTRMATCH(AUDIO_ANY)) {
-    w=scanandwarnupdate(&ad->alangpresent,s,&adwarn->alangpresent,"audio language",alangdesc);
-    if(w) return w-1;
-  }
-
-  if (ATTRMATCH(AUDIO_CHANNELS)) {
-    w=scanandwarnupdate(&ad->achannels,s,&adwarn->achannels,"number of channels",achanneldesc);
-    if(w) return w-1;
-  }
-
-  if (ATTRMATCH(AUDIO_SAMPLERATE)) {
-    w=scanandwarnupdate(&ad->asample,s,&adwarn->asample,"sampling rate",asampledesc);
-    if(w) return w-1;
-  }
-
-  if (ATTRMATCH(AUDIO_LANG) && 2==strlen(s)) {
-    w=warnupdate(&ad->alangpresent,AL_LANG,&adwarn->alangpresent,"audio language",alangdesc);
-    /* turn on lang */
-    if(ad->lang[0] || ad->lang[1])
-      w=1; /* language code already set */
-    ad->lang[0]=tolower(s[0]); /* note I don't actually validate the language code */
-    ad->lang[1]=tolower(s[1]);
-    return w;
-  }
-
-  if (ATTRMATCH(AUDIO_CONTENT))
-    {
-      w = scanandwarnupdate(&ad->acontent, s, &adwarn->acontent, "audio content type", acontentdesc);
-      if(w)
-        return w - 1;
-    } /*if*/
-
-  fprintf(stderr,"ERR:  Cannot parse audio option '%s'\n",s);
-  exit(1);
-}
-
-int getsubpmask(const struct videodesc *vd)
-/* returns a 4-bit mask specifying the default usage of a subpicture stream, with
-   meaning as follows:
-   3  2  1  0
-   |  |  |  \ narrowscreen footage
-   |  |  \widescreen footage, crop on narrowscreen display
-   |  \widescreen footage, letterbox on narrowscreen display
-   \widescreen footage, pan&scan on narrowscreen display
-*/
-{
-  int mask = 0;
-  if (vd->vaspect == VA_16x9)
-    mask |= 14; /* widescreen => allow pan&scan, letterbox and crop */
-  else
-    mask |= 1;
-  switch (vd->vwidescreen)
-    {
-    case VW_NOLETTERBOX:
-      mask &= -1-4; /* clear letterbox bit */
-      break;
-    case VW_NOPANSCAN:
-      mask &= -1-8; /* clear pan&scan bit */
-      break;
-    case VW_CROP:
-      mask |= 2; /* redundant? crop bit already set for widescreen */
-      break;
-    } /*switch*/
-  return
-    mask;
-} /*getsubpmask*/
-
-int findcellvobu(const struct vob *va,int cellid)
-/* finds the element of array va that includes the cell with ID cellid. */
-{
-  int l=0,h=va->numvobus-1;
-  if( h<l )
-    return 0;
-  cellid=(cellid&255)|(va->vobid*256);
-  if( cellid<va->vobu[0].vobcellid )
-    return 0;
-  if( cellid>va->vobu[h].vobcellid )
-    return h+1;
-  while(l<h) { /* search by binary chop */
-    int m=(l+h)/2;
-    if( cellid<=va->vobu[m].vobcellid )
-      h=m;
-    else
-      l=m+1;
-  }
-  return l;
-}
-
-pts_t getcellpts(const struct vob *va,int cellid)
-/* returns the duration of the specified cell. */
-{
-  int s=findcellvobu(va,cellid),e=findcellvobu(va,cellid+1);
-  if( s==e ) return 0;
-  return va->vobu[e-1].sectpts[1]-va->vobu[s].sectpts[0];
-}
-
-int findvobu(const struct vob *va,pts_t pts,int l,int h)
-/* finds the element of array va, within indexes l and h, that includes time pts. */
-{
-  // int l=0,h=va->numvobus-1;
-
-  if( h<l )
-    return l-1;
-  if( pts<va->vobu[l].sectpts[0] )
-    return l-1;
-  if( pts>=va->vobu[h].sectpts[1] )
-    return h+1;
-  while(l<h) { /* search by binary chop */
-    int m=(l+h+1)/2;
-    if( pts < va->vobu[m].sectpts[0] )
-      h=m-1;
-    else
-      l=m;
-  }
-  return l;
-}
-
-pts_t getptsspan(const struct pgc *ch)
-/* returns the duration of the specified PGC. */
-{
-  int s,c,ci;
-  pts_t ptsspan=0;
-
-  for( s=0; s<ch->numsources; s++ ) {
-    const struct source * const sc = ch->sources[s];
-    for( c=0; c<sc->numcells; c++ ) {
-      const struct cell *const cl = &sc->cells[c];
-      for( ci=cl->scellid; ci<cl->ecellid; ci++ )
-        ptsspan+=getcellpts(sc->vob,ci);
-    }
-  }
-  return ptsspan;
-}
 
 static char *makevtsdir(const char *s)
 /* returns the full pathname of the VIDEO_TS subdirectory within s if non-NULL,
@@ -598,21 +196,6 @@ static char *makevtsdir(const char *s)
   strcat(fbuf,"/VIDEO_TS");
   return strdup(fbuf);
 }
-
-// jumppad requires the existance of a menu to operate
-// if no languages exist, create an english one
-static void jp_force_menu(struct menugroup *mg, vtypes type)
-{
-  struct pgcgroup *pg;
-
-  if (!jumppad)
-    return;
-  if (mg->numgroups)
-    return;
-  fprintf(stderr, "WARN: The use of jumppad requires a menu; creating a dummy ENGLISH menu\n");
-  pg = pgcgroup_new(type);
-  menugroup_add_pgcgroup(mg, "en", pg);
-} /*jp_force_menu*/
 
 static void ScanIfo(struct toc_summary *ts, const char *ifo)
 /* scans another existing VTS IFO file and puts info about it
@@ -665,7 +248,7 @@ static void ScanIfo(struct toc_summary *ts, const char *ifo)
 static void forceaddentry(struct pgcgroup *va, int entry)
 /* gives the first PGC in va the specified entry type, if this is not present already. */
 {
-  if (!va->numpgcs && !jumppad)
+  if (!va->numpgcs && true)
     return;
   if (!(va->allentries & entry)) /* entry not already present */
     {
@@ -676,73 +259,6 @@ static void forceaddentry(struct pgcgroup *va, int entry)
     } /*if*/
 } /*forceaddentry*/
 
-static void deletedir(const char * fbase)
-/* deletes any existing output directory structure. Note for safety I only look for
-   names matching limited patterns. */
-{
-  static char dirname[1000], subname[1000];
-  DIR  * subdir;
-  snprintf(dirname, sizeof dirname, "%s/VIDEO_TS", fbase);
-  subdir = opendir(dirname);
-  if (subdir == NULL && errno != ENOENT)
-    {
-      fprintf(stderr, "ERR:  cannot open dir for deleting %s: %s\n", dirname, strerror(errno));
-      exit(1);
-    } /*if*/
-  if (subdir != NULL)
-    {
-      for (;;)
-        {
-          const struct dirent * const entry = readdir(subdir);
-          if (entry == NULL)
-            break;
-          if
-            (
-             strlen(entry->d_name) == 12
-             &&
-             entry->d_name[8] == '.'
-             &&
-             (
-              !strcmp(entry->d_name + 9, "IFO")
-              ||
-              !strcmp(entry->d_name + 9, "BUP")
-              ||
-              !strcmp(entry->d_name + 9, "VOB")
-              )
-             &&
-             (
-              !strncmp(entry->d_name, "VIDEO_TS", 8)
-              ||
-              (!strncmp(entry->d_name, "VTS_", 4)
-               &&
-               entry->d_name[6] == '_')
-              )
-             )
-            {
-              snprintf(subname, sizeof subname, "%s/%s", dirname, entry->d_name);
-              if (unlink(subname))
-                {
-                  fprintf(stderr, "ERR:  cannot delete file %s: %s\n", subname, strerror(errno));
-                  exit(1);
-                } /*if*/
-            } /*if*/
-        } /*for*/
-      closedir(subdir);
-    } /*if*/
-  if (rmdir(dirname) && errno != ENOENT)
-    {
-      fprintf(stderr, "ERR:  cannot delete dir %s: %s\n", dirname, strerror(errno));
-      exit(1);
-    } /*if*/
-  snprintf(dirname, sizeof dirname, "%s/AUDIO_TS", fbase);
-  if (rmdir(dirname) && errno != ENOENT)
-    {
-      fprintf(stderr, "ERR:  cannot delete dir %s: %s\n", dirname, strerror(errno));
-      exit(1);
-    } /*if*/
-  errno = 0;
-} /*deletedir*/
-
 static void initdir(const char * fbase)
 /* creates the top-level DVD-video subdirectories within the output directory,
    if they don't already exist. */
@@ -750,11 +266,6 @@ static void initdir(const char * fbase)
   static char realfbase[1000];
   if (fbase)
     {
-      if (delete_output_dir)
-        {
-          deletedir(fbase);
-          delete_output_dir = false; /* only do on first call */
-        } /*if*/
       if (mkdir(fbase, 0777) && errno != EEXIST)
         {
           fprintf(stderr, "ERR:  cannot create dir %s: %s\n", fbase, strerror(errno));
@@ -776,49 +287,12 @@ static void initdir(const char * fbase)
   errno = 0;
 } /*initdir*/
 
-static struct colorinfo *colorinfo_new()
-{
-  struct colorinfo *ci=malloc(sizeof(struct colorinfo));
-  ci->refcount=1;
-  memcpy(ci->color,default_colors,16*sizeof(int));
-  return ci;
-}
-
-static struct vob *vob_new(const char *fname,struct pgc *progchain)
-{
-  struct vob *v=malloc(sizeof(struct vob));
-  memset(v,0,sizeof(struct vob));
-  v->fname=strdup(fname);
-  v->progchain=progchain;
-  return v;
-}
-
 static struct vobgroup *vobgroup_new()
 {
   struct vobgroup *vg=malloc(sizeof(struct vobgroup));
   memset(vg,0,sizeof(struct vobgroup));
   return vg;
 }
-
-static void vobgroup_addvob(struct vobgroup *pg, struct pgc *p, struct source *s)
-{
-  const bool forcenew = p->numbuttons != 0;
-  if (!forcenew)
-    {
-      /* Reuse a previously-created vob element with the same input file name,
-         if one can be found. This is not tried if buttons are present--is that
-         because of colour-remapping issues? */
-      int i;
-      for (i = 0; i < pg->numvobs; i++)
-        if (!strcmp(pg->vobs[i]->fname, s->fname) && pg->vobs[i]->progchain->numbuttons == 0)
-          {
-            s->vob = pg->vobs[i];
-            return;
-          } /*if*/
-    } /*if*/
-  pg->vobs = realloc(pg->vobs, (pg->numvobs + 1) * sizeof(struct vob *));
-  s->vob = pg->vobs[pg->numvobs++] = vob_new(s->fname, p);
-} /*vobgroup_addvob*/
 
 static void pgcgroup_pushci(struct pgcgroup *p, bool warn)
 /* shares colorinfo structures among all pgc elements that have sources
@@ -858,20 +332,10 @@ static void pgcgroup_pushci(struct pgcgroup *p, bool warn)
 static void pgcgroup_createvobs(struct pgcgroup *p, struct vobgroup *v)
 /* appends p->pgcs onto v->allpgcs and builds the struct vob arrays in the vobgroups. */
 {
-  int i, j;
   v->allpgcs = (struct pgc **)realloc(v->allpgcs, (v->numallpgcs + p->numpgcs) * sizeof(struct pgc *));
   memcpy(v->allpgcs + v->numallpgcs, p->pgcs, p->numpgcs * sizeof(struct pgc *));
   v->numallpgcs += p->numpgcs;
-  for (i = 0; i < p->numpgcs; i++)
-    for (j = 0; j < p->pgcs[i]->numsources; j++)
-      vobgroup_addvob(v, p->pgcs[i], p->pgcs[i]->sources[j]);
   pgcgroup_pushci(p, false);
-  for (i = 0; i < p->numpgcs; i++)
-    if (!p->pgcs[i]->colors)
-      {
-        p->pgcs[i]->colors = colorinfo_new();
-        pgcgroup_pushci(p, false);
-      } /*if; for*/
   pgcgroup_pushci(p, true);
 } /*pgcgroup_createvobs*/
 
@@ -955,8 +419,6 @@ struct pgcgroup *pgcgroup_new(vtypes type)
   struct pgcgroup *ps=malloc(sizeof(struct pgcgroup));
   memset(ps,0,sizeof(struct pgcgroup));
   ps->pstype=type;
-  if (type == VTYPE_VTS)
-    ps->vg=vobgroup_new();
   return ps;
 }
 
@@ -984,7 +446,7 @@ void menugroup_add_pgcgroup(struct menugroup *mg, const char *lang, struct pgcgr
   mg->numgroups++;
 } /*menugroup_add_pgcgroup*/
 
-void dvdauthor_vmgm_gen(struct pgc *fpc, struct menugroup *menus, const char *fbase)
+void dvdauthor_vmgm_gen(struct menugroup *menus, const char *fbase)
 /* generates a VMG, taking into account all already-generated titlesets. */
 {
   DIR *d;
@@ -1001,7 +463,6 @@ void dvdauthor_vmgm_gen(struct pgc *fpc, struct menugroup *menus, const char *fb
   ws.titlesets = &ts;
   ws.menus = menus;
   ws.titles = 0;
-  jp_force_menu(menus, VTYPE_VMGM);
   for (i = 0; i < menus->numgroups; i++)
     {
       validatesummary(menus->groups[i].pg);
@@ -1069,9 +530,9 @@ void dvdauthor_vmgm_gen(struct pgc *fpc, struct menugroup *menus, const char *fb
 
   /* (re)generate VMG IFO */
   snprintf(fbuf, sizeof fbuf, "%s/VIDEO_TS.IFO", vtsdir);
-  TocGen(&ws, fpc, fbuf);
+  TocGen(&ws, fbuf);
   snprintf(fbuf, sizeof fbuf, "%s/VIDEO_TS.BUP", vtsdir); /* same thing again, backup copy */
-  TocGen(&ws, fpc, fbuf);
+  TocGen(&ws, fbuf);
   for (i = 0; i < ts.numvts; i++)
     if (ts.vts[i].numchapters)
       free(ts.vts[i].numchapters);

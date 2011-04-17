@@ -248,7 +248,6 @@ struct workset {
 
 extern const char * const entries[]; /* PGC menu entry types */
 extern bool
-    jumppad, /* reserve registers and set up code to allow convenient jumping between titlesets */
     allowallreg; /* don't reserve any registers for convenience purposes */
 extern const char * const pstypes[]; /* names of PGC types, indexed by vtypes values */
 
@@ -293,7 +292,7 @@ struct vm_statement *vm_parse(const char *b);
 /* following implemented in dvdifo.c */
 
 void WriteIFOs(const char *fbase,const struct workset *ws);
-void TocGen(const struct workset *ws,const struct pgc *fpc,const char *fname);
+void TocGen(const struct workset *ws,const char *fname);
 
 /* following implemented in dvdpgc.c */
 

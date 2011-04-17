@@ -96,7 +96,7 @@ void source_set_filename(struct source *v,const char *s);
 void dvdauthor_enable_jumppad();
 void dvdauthor_enable_allgprm();
 void dvdauthor_vts_gen(struct menugroup *menus,struct pgcgroup *titles,const char *fbase);
-void dvdauthor_vmgm_gen(struct pgc *fpc,struct menugroup *menus,const char *fbase);
+void dvdauthor_vmgm_gen(struct menugroup *menus,const char *fbase);
 
 #ifdef __cplusplus
 }
