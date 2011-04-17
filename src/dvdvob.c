@@ -29,8 +29,8 @@
 #include <fcntl.h>
 #include <ctype.h>
 
-#include "dvdauthor.h"
-#include "da-internal.h"
+#include "mkinfo.h"
+#include "mi-internal.h"
 
 
 

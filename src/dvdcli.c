@@ -30,7 +30,7 @@
 #include <fcntl.h>
 
 #include "conffile.h"
-#include "dvdauthor.h"
+#include "mkinfo.h"
 #include "readxml.h"
 #include "rgb.h"
 

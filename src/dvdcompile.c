@@ -25,8 +25,8 @@
 #include "compat.h"
 #include <assert.h>
 
-#include "dvdauthor.h"
-#include "da-internal.h"
+#include "mkinfo.h"
+#include "mi-internal.h"
 #include "dvdvm.h"
 
 

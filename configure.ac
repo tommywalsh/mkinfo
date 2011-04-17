@@ -14,7 +14,6 @@ AC_HEADER_STDBOOL
 have_dvdread=false
 AC_CHECK_LIB(dvdread, DVDOpenFile, have_dvdread=true)
 AM_CONDITIONAL(HAVE_DVDREAD, $have_dvdread)
-
 AC_CHECK_LIB(gnugetopt, getopt_long)
 
 dnl AC_CHECK_HEADERS initializes CPP, so must appear outside of any conditionals
