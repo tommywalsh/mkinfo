@@ -20,10 +20,13 @@
  * USA
  */
 
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
 #include "config.h"
 #include "compat.h"
-#include <errno.h>
-#include <assert.h>
 
 #include "mkinfo.h"
 #include "mi-internal.h"

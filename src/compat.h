@@ -121,31 +121,6 @@ extern const char * default_charset;
 
 #endif /*HAVE_ICONV*/
 
-void strconcat
-  (
-    char * dest,
-    size_t maxdestlen,
-    const char * src
-  );
-  /* appends null-terminated src onto dest, ensuring length of contents
-    of latter (including terminating null) do not exceed maxdestlen. */
-
-unsigned int strtounsigned
-  (
-    const char * s,
-    const char * what /* description of what I'm trying to convert, for error message */
-  );
-  /* parses s as an unsigned decimal integer, returning its value. Aborts the
-    program on error. */
-
-int strtosigned
-  (
-    const char * s,
-    const char * what /* description of what I'm trying to convert, for error message */
-  );
-  /* parses s as a signed decimal integer, returning its value. Aborts the
-    program on error. */
-
 #ifndef HAVE_STRNDUP
 char * strndup
   (
@@ -154,92 +129,8 @@ char * strndup
   );
 #endif
 
-char * str_extract_until
-  (
-    const char ** src,
-    const char * delim
-  );
-  /* scans *src, looking for the first occurrence of a character in delim. Returns
-    a copy of the prior part of *src if found, and updates *src to point after the
-    delimiter character; else returns a copy of the whole of *src, and sets *src
-    to NULL. Returns NULL iff *src is NULL. */
-
-void init_locale();
-  /* does locale initialization and initializes default_charset. */
-
-char * locale_decode
-  (
-    const char * localestr
-  );
-  /* allocates and returns a string containing the UTF-8 representation of
-    localestr interpreted according to the user's locale settings. */
-
-#if !HAVE_DECL_O_BINARY
-#define O_BINARY 0
-#endif
-
-#if defined(HAVE_SETMODE) && HAVE_DECL_O_BINARY
-#define win32_setmode setmode
-#else
-#define win32_setmode(x,y)
-#endif
-
 #define PACKAGE_HEADER(x) PACKAGE_NAME "::" x ", version " PACKAGE_VERSION ".\nBuild options:" BUILDSPEC "\nSend bug reports to <" PACKAGE_BUGREPORT ">\n\n"
 
-#ifndef HAVE_FT2BUILD_H
-#define FT_FREETYPE_H <freetype/freetype.h>
-#define FT_GLYPH_H <freetype/ftglyph.h>
-#endif
 
 enum {VF_NONE=0,VF_NTSC=1,VF_PAL=2}; /* values for videodesc.vformat in da-internal.h as well as other uses */
 
-typedef struct
-  {
-    unsigned char r, g, b, a;
-  } colorspec;
-
-#if HAVE_ICONV && LOCALIZE_FILENAMES
-
-char * localize_filename(const char * pathname);
-  /* converts a filename from UTF-8 to localized encoding. */
-
-#else
-#    define localize_filename(pathname) (strdup(pathname))
-#endif
-
-/* values for vfile.ftype */
-#define VFTYPE_FILE 0 /* an actual file I opened */
-#define VFTYPE_PIPE 1 /* an actual pipe I opened to/from a child process */
-#define VFTYPE_REDIR 2 /* a redirection to/from another already-opened file */
-struct vfile /* for keeping track of files opened by varied_open */
-  {
-    FILE * h; /* do your I/O to/from this */
-    int ftype, mode; /* for use by varied_close */
-  } /*vfile*/;
-
-struct vfile varied_open
-  (
-    const char * fname,
-    int mode, /* either O_RDONLY or O_WRONLY, nothing more */
-    const char * what /* description of what I'm trying to open, for error message */
-  );
-  /* opens the file fname, which can be an ordinary file name or take one of the
-    following special forms:
-        "-" -- refers to standard input (if mode is O_RDONLY) or output (if O_WRONLY)
-        "&n" -- (n integer) refers to the already-opened file handle n
-        "cmd|" -- spawns cmd as a subprocess and reads from its standard output
-        "|cmd" -- spawns cmd as a subprocess and writes to its standard input.
-
-    Will abort the process on any errors.
-  */
-
-void varied_close(struct vfile vf);
-  /* closes a file previously opened by varied_open. */
-
-colorspec parse_color
-  (
-    const char * colorstr,
-    const char * what /* additional explanatory text for error message */
-  );
-  /* parses colorstr and returns the resulting colour. Will abort the process
-    on any errors. */

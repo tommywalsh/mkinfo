@@ -21,18 +21,10 @@
  * USA
  */
 
-#include "config.h"
-
-#include "compat.h"
-
-#include <assert.h>
-#include <ctype.h>
-#include <fcntl.h>
-
-#include "conffile.h"
+#include <stdio.h>
+#include <string.h>
 #include "mkinfo.h"
-#include "readxml.h"
-#include "rgb.h"
+#include "compat.h"
 
 int default_video_format = VF_NONE;
 
