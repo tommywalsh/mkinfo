@@ -136,6 +136,9 @@ bool delete_output_dir = false;
 static int getratecode(const struct vobgroup *va)
   /* returns the frame rate code if specified, else the default. */
 {
+  /* HACK */
+  default_video_format = VF_NTSC;
+
     if (va->vd.vframerate)
         return va->vd.vframerate;
     else if (va->vd.vformat || default_video_format)
@@ -1944,7 +1947,7 @@ void dvdauthor_vmgm_gen(struct pgc *fpc, struct menugroup *menus, const char *fb
       /* unconditional because there will always be at least one PGC,
         namely the FPC (explicit or default) */
       {
-        set_video_format_attr(menus->vg, VTYPE_VMGM); /* for the sake of buildtimeeven */
+        /*        set_video_format_attr(menus->vg, VTYPE_VMGM);*/ /* for the sake of buildtimeeven */
       } /*if*/
   /* (re)generate VMG IFO */
     snprintf(fbuf, sizeof fbuf, "%s/VIDEO_TS.IFO", vtsdir);

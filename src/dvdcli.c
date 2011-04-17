@@ -363,6 +363,24 @@ static void usage()
               } /*if*/
 
 int main(int argc, char **argv)
+{
+  struct pgcgroup *va[1]; /* element 0 for doing menus, 1 for doing titles */
+  struct menugroup *mg;
+
+  /* Menus set to some default setup */
+  memset(va, 0, sizeof(struct pgcgroup *));
+  va[0] = pgcgroup_new(VTYPE_VTSM);
+  mg = menugroup_new();
+  menugroup_add_pgcgroup(mg, "en", va[0]);
+
+  if (argc==2) {
+    dvdauthor_vmgm_gen(0, mg, argv[1]);
+  } else {
+    fprintf(stderr, "Usage foobar /path/to/dvddirectory\n");
+  }
+  return 0;
+}
+int old_main(int argc, char **argv)
   {
     struct pgcgroup *va[2]; /* element 0 for doing menus, 1 for doing titles */
     struct menugroup *mg;
