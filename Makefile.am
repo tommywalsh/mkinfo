@@ -1,4 +1,4 @@
-SUBDIRS = doc src
+SUBDIRS = src
 
 noinst_DATA = dvdauthor.spec
 

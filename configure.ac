@@ -127,4 +127,4 @@ AM_PATH_XML2(2.6.0, , AC_MSG_ERROR([You must have libxml2 >= 2.6.0 installed]))
 
 AC_CHECK_DECLS(O_BINARY, , , [ #include <fcntl.h> ] )
 
-AC_OUTPUT(Makefile doc/Makefile src/Makefile)
+AC_OUTPUT(Makefile src/Makefile)
