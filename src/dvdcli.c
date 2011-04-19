@@ -1,6 +1,5 @@
 /*
-    dvdauthor mainline, interpretation of command-line options and parsing of
-    dvdauthor XML control files
+    interpretation of command-line options
 */
 /*
  * Copyright (C) 2002 Scott Smith (trckjunky@users.sourceforge.net)
@@ -23,10 +22,37 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <sys/types.h>
+#include <dirent.h>
+
 #include "mkinfo.h"
 #include "compat.h"
 
 int default_video_format = VF_NONE;
+
+bool directory_has_ifo_file(const char* dirname)
+{
+  DIR *d;
+  struct dirent *de;
+  int len;
+  char* buffer;
+
+  len = strlen(dirname);
+  if (dirname[len-1] == '/') --len;
+  buffer = malloc(len+10);
+  strncpy(buffer, dirname, len);
+  strcat(buffer, "/VIDEO_TS");
+
+  d = opendir(buffer);
+  free(buffer);
+  while ((de = readdir(d)) != 0)
+    {
+      if (strcasecmp(de->d_name, "VIDEO_TS.IFO") == 0) {
+        return true;
+      }
+    }
+  return false;
+}
 
 int main(int argc, char **argv)
 {
@@ -40,7 +66,13 @@ int main(int argc, char **argv)
   menugroup_add_pgcgroup(mg, "en", va[0]);
 
   if (argc==2) {
-    dvdauthor_vmgm_gen(mg, argv[1]);
+    fprintf(stdout, "Checking directory %s\n", argv[1]);
+    if (directory_has_ifo_file(argv[1])) {
+      fprintf(stdout, "VIDEO_TS.IFO already present.  Doing nothing\n");
+    } else {
+      fprintf(stdout, "Processing directory\n");
+      dvdauthor_vmgm_gen(mg, argv[1]);
+    }
   } else {
     fprintf(stderr, "Usage foobar /path/to/dvddirectory\n");
   }
