@@ -21,17 +21,14 @@
  */
 
 #include "config.h"
-
 #include "compat.h"
-
-#include <sys/types.h>
-#include <dirent.h>
-#include <assert.h>
+#include <sys/stat.h>
 #include <ctype.h>
-#include <errno.h>
-#include <fcntl.h>
+#include <stdlib.h>
 #include <dirent.h>
-
+#include <errno.h>
+#include <string.h>
+#include <stdio.h>
 #include "mkinfo.h"
 #include "mi-internal.h"
 
