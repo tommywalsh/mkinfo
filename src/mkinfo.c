@@ -506,17 +506,11 @@ void dvdauthor_vmgm_gen(struct menugroup *menus, const char *fbase)
   for (i = 1; i <= 99; i++)
     {
       if (!ifonames[i][0])
-        break;
+        continue;
       snprintf(fbuf, sizeof fbuf, "%s/%s", vtsdir, ifonames[i]);
       fprintf(stderr, "INFO: Scanning %s\n",fbuf);
       ScanIfo(&ts, fbuf); /* collect info about existing titleset for inclusion in new VMG IFO */
     } /*for*/
-  for (; i <= 99; i++) /* look for discontiguously-assigned title nrs (error) */
-    if (ifonames[i][0])
-      {
-        fprintf(stderr, "ERR:  Titleset #%d (%s) does not immediately follow the last titleset\n",i,ifonames[i]);
-        exit(1);
-      } /*if; for*/
   if (!ts.numvts)
     {
       fprintf(stderr, "ERR:  No .IFO files to process\n");
