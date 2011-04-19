@@ -1,61 +1,19 @@
-dvdauthor is a program that will generate a DVD-Video movie from a valid
-mpeg2 stream that should play when you put it in a DVD player.
+mkinfo is a program that will generate "missing" files after partially
+backing up a DVD with the (unaffiliated) program "dvdauthor".
 
-To start you need mpeg files that contain the necessary DVD-Video VOB
-packets. These can be generated with FFmpeg, or by by passing '-f 8' to mplex.
+DVDs have a file "VIDEO_TS.IFO" inside a directory called "VIDEO_TS".  
+This file tells the DVD player about what titlesets are on the DVD.
 
-There are 3 steps to building the DVD directory structure on your HDD.
+Since "dvdauthor" only copies, and does not generate anything, when it 
+is told to back up only part of a DVD (e.g. the main feature), it will
+copy only the titleset.  Copying the "VIDEO_TS.IFO" file would not make
+sense, since that file would refer to titlesets that were not backed up.
 
-1. Delete a previously authored dvd
+However, that partial DVD image is not always playable because many software
+DVD players look for that missing file.
 
-        dvddirdel [-o dir]
+This program analyzes the data available, and generates an appropriate
+VIDEO_TS.IFO.
 
-    To guard against mistakes, this will only delete files and subdirectories
-    that look like part of a DVD-Video structure.
+The program is adapted from "dvdauthor".
 
-2. Create your titlesets
-
-        dvdauthor [-o dir] [audio/video/subpicture options] [chapters]
-
-    To create 1 chapter per mpeg, simply do
-
-        dvdauthor [-o dir] [a/v/s options] chap1.mpg chap2.mpg chap3.mpg...
-
-    To manually specify chapters, use the '--chapters' option
-
-        dvdauthor [-o dir] [a/v/s options] -c chap1a.mpg chap1b.mpg -c chap2a.mpg chap2b.mpg ....
-
-    To add chapters every fifteen minutes, do
-
-        dvdauthor [-o dir] [a/v/s options] -c 0,15:00,30:00,45:00,1:00:00,1:15:00... longvideo.mpg
-
-    Call dvdauthor for each titleset you want to create.  Note that
-    due to the DVD-Video standard, all audio, video, and subpicture options
-    must be set once for the entire titleset; i.e. you cannot mix PAL
-    and NTSC video in the same titleset. For that you must generate
-    separate titlesets.
-
-    Run dvdauthor -h to see the audio, video, and subpicture options.
-    Note that dvdauthor can autodetect most parameters except the
-    language.
-
-3. Create the table of contents
-
-        dvdauthor -T [-o dir]
-
-Voila! You now have a DVD-Video directory structure that will probably
-work! You can now write this out to your DVD, mini-DVD (CD), or just
-play it from your HDD. To generate the UDF image to burn to DVD, use
-mkisofs and pass it the -dvd-video option.
-
-
-important links:
-
-FFmpeg: http://www.ffmpeg.org/
-        Note that packages included with your distro are almost certainly out
-        of date. Get the latest version from the Subversion repository.
-mjpegtools: http://mjpeg.sourceforge.net
-        includes mplex for building an mpeg2 system stream with hooks
-        for DVD-Video navigation packets
-mpucoder's site on dvd specs: http://www.mpucoder.com/DVD/
-        details on the DVD-Video format
